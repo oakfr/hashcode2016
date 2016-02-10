@@ -71,19 +71,20 @@ def greedy_solution(M,R,C):
             changed = True
             break
         # finish with single cells
-        #ind = np.array(list(np.where(S>0))).transpose()
-        #for i in range(ind.shape[0]):
-        #    cmd = [ind[i][0],ind[i][1],ind[i][0],ind[i][1]]
-        #    commands.append(cmd)
-        #    S[ind[i][0],ind[i][1]]=0
+        ind = np.array(list(np.where(S>0))).transpose()
+        for i in range(ind.shape[0]):
+            cmd = [ind[i][0],ind[i][1],ind[i][0],ind[i][1]]
+            commands.append(cmd)
+            S[ind[i][0],ind[i][1]]=0
     return commands
 
 def get_score(M,R,C,commands):
+    assert(check_sol(M,R,C,commands))
     S = np.zeros((R,C))
     for cmd in commands:
         S[cmd[0]:cmd[2]+1,cmd[1]:cmd[3]+1]=1
     d = np.sum((S>0) & (M>0))
-    return d
+    return R*C - len(commands)
 
 def check_sol(M,R,C,commands):
     S = np.zeros((R,C))
@@ -91,7 +92,7 @@ def check_sol(M,R,C,commands):
         S[cmd[0]:cmd[2]+1,cmd[1]:cmd[3]+1]=1
     d1 = np.sum((S>0) & (M>0))
     d2 = np.sum(S>0)
-    show(S)
+#    show(S)
     return d1==d2
 
 def print_solution(commands,out_file):
@@ -132,7 +133,7 @@ def list_commands(R,C):
 if __name__ == "__main__":
 
     in_files = ['logo.in','learn_and_teach.in','right_angle.in']
-    in_files = ['logo.in']
+    #in_files = ['logo.in']
     for in_file in in_files:
 
         (M,R,C) = read_data(in_file)
@@ -141,6 +142,7 @@ if __name__ == "__main__":
         commands = greedy_solution(M,R,C)
 
         score = get_score(M,R,C,commands)
+        print(score)
 
         print(check_sol(M,R,C,commands))
 
