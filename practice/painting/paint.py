@@ -14,6 +14,11 @@ def show (M):
                 str += '.'
         print(str)
 
+def check_sol_file (in_file):
+    with open(in_file,'r') as fp:
+        n = int(fp.readline())
+        print(n)
+
 def read_data (in_file):
     with open(in_file,'r') as fp:
         d = [int(x) for x in fp.readline().split(' ')]
@@ -90,14 +95,19 @@ def get_score(M,R,C,commands):
 
 def check_sol(M,R,C,commands):
     S = np.zeros((R,C))
+    n_erase = 0
     for cmd in commands:
         if cmd[4]>0:
             S[cmd[0]:cmd[2]+1,cmd[1]:cmd[3]+1]=1
         else:
+            assert((cmd[0]==cmd[2]) and (cmd[1]==cmd[3]))
             S[cmd[0]:cmd[2]+1,cmd[1]:cmd[3]+1]=0
+            n_erase += 1
     d1 = np.sum((S>0) & (M>0))
     d2 = np.sum(S>0)
 #    show(S)
+    if d1 != d2:
+        print('*** Failure***.  # diffs : %d' % np.sum(np.abs(S-M)))
     return d1==d2
 
 
@@ -151,13 +161,13 @@ def is_in (a,b):
 
 def iterate_sol (M,R,C,greedy_sol,all_commands):
 
-    stepr = min([15,int(R-1)])
-    stepc = min([15,int(C-1)])
+    stepr = min([5,int(R-1)])
+    stepc = min([5,int(C-1)])
 
     # pick a random rectangle
-    r1 = random.randint(0,R-stepr)
+    r1 = random.randint(0,R-stepr-1)
     r2 = r1+stepr
-    c1 = random.randint(0,C-stepc)
+    c1 = random.randint(0,C-stepc-1)
     c2 = c1+stepc
     print((r1,r2,c1,c2))
     #r1 = 2
@@ -235,6 +245,9 @@ if __name__ == "__main__":
 
             out_file = 'output/out_%d_%s' % (score,in_file)
             print_solution(greedy_cmds,out_file)
+
+            print('check output file')
+            check_sol_file(out_file)
 
     #commands = list_commands (R,C)
 
