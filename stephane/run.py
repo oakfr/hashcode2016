@@ -164,21 +164,28 @@ def compute_rank (ORS,NP,NO):
         assert(p[0]<NP)
     return product_rank
 
+def full_iteration ():
+    cmd  = './exe mother_of_all_warehouses.in mother_of_all_warehouses'
+    cmd  = './exe redundancy.in redundancy'
+    cmd  = './exe busy_day.in busy_day'
+    os.system(cmd)
 
 if __name__ == "__main__":
-       
-    jobs = []
+    
+    for b in range(1000000):
 
-    num_threads = 32
-    for p in range(num_threads):
+        jobs = []
 
-        process = multiprocessing.Process(target=full_iteration, args=[])
-        process.start()
-        jobs.append(process)
+        num_threads = 32
+        for p in range(num_threads):
 
-    # wait for everyone
-    for proc in jobs:
-        proc.join()
+            process = multiprocessing.Process(target=full_iteration, args=[])
+            process.start()
+            jobs.append(process)
+
+        # wait for everyone
+        for proc in jobs:
+            proc.join()
 
     sys.exit(1)
 
