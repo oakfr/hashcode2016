@@ -126,6 +126,10 @@ class Game:
             w.items_copy = copy.copy (w.items)
         for o in self.orders:
             o.items_copy = copy.copy (o.items)
+        # sort orders by decreasing value
+        self.orders = sorted (self.orders, key=lambda o:sum(o.items))
+        for i,o in enumerate(self.orders):
+            o.id=i
         for o in self.orders:
             o.packs = []
             n_trials=0
@@ -265,12 +269,12 @@ class Game:
                 break
  
         # save solution to file
-        print ('%d points.  saving %d commands to file' % (self.points, len(self.commands)))
         dirname = self.filename.split('.')[0]
         if not os.path.isdir (dirname):
             os.makedirs (dirname)
         filename = '%s/res_%d' % (dirname,self.points)
         self.commands_to_file (filename)
+        print ('%d points.  saved %d commands to file %s' % (self.points, len(self.commands), filename))
 
 
     def load_solution (self, filename):
