@@ -1,7 +1,8 @@
 import sys
 import copy
 import math
-
+import pickle
+import os
 
 def distance(r1, c1, r2, c2):
     if (r1==r2) and (c1==c2):
@@ -34,7 +35,7 @@ class Order:
         self.c = c
         self.items = items
         self.done = False
-        self.allocated_to_drone = False
+        self.allocated_drone = -1
         self.best_order = []
         self.best_w_i = -1
 
@@ -113,71 +114,142 @@ class Game:
         for o in self.orders:
             o.items_copy = copy.copy (o.items)
         for o in self.orders:
-            packs = []
+            o.packs = []
             n_trials=0
             while sum(o.items_copy)>0:
                 n_trials+=1
                 affs = [o.affinity_warehouse(w) for w in self.warehouses]
-                o.best_w_i = affs.index(max(affs))
-                w = self.warehouses[o.best_w_i]
+                best_w_i = affs.index(max(affs))
+                w = self.warehouses[best_w_i]
                 pack = self.match_order_warehouse(o, w)
                 assert (compute_weight (pack, self.weights) <= self.maxload)
                 for (p,i) in pack:
                     w.items_copy[p]-=i
-                    if w.items_copy[p]<0:
-                        print(pack)
-                        print (w)
                     assert(w.items_copy[p]>=0)
                     o.items_copy[p]-=i
-                packs.append (pack)
-                if n_trials>100:
-                    print ('failed to allocate order %d' % o.id)
-                    print (o)
-                    for w in self.warehouses:
-                        print(w)
-                        print ('order %d seems allocated to warehouse %d' % (o.id, o.best_w_i))
-                        print ('affinity = %.5f' % o.affinity_warehouse (self.warehouses[o.best_w_i]))
-                        print (w.items_copy[160])
-                    #    print ('affinity with 8 = %.5f' % o.affinity_warehouse (self.warehouses[8], True))
-                    return
-            print ('order %d allocated in %d parts' % (o.id, len(packs)))
+                    assert (o.items_copy[p]>=0)
+                o.packs.append ((w.id,pack))
+                assert (w.id == best_w_i)
+            print ('order %d allocated to warehouse %d in %d parts' % (o.id, w.id, len(o.packs)))
+        for w in self.warehouses:
+            print ('warehouse %d has %d items left' % (w.id, sum(w.items_copy)))
+
 
     def allocate_drones_to_warehouses (self):
         # look for nearest warehouse
         for d in self.drones:
+            if d.busy:
+                d.best_w_i = -1
+                continue
             dist = [distance(d.r, d.c, w.r, w.c) for w in self.warehouses]
             indx = dist.index(min(dist))
             d.best_w_i = indx
-            print ('drone %d allocated to warehouse %d' % (d.id, self.warehouses[d.best_w_i].id))
+            assert (self.warehouses[d.best_w_i].id==d.best_w_i)
+            print ('drone %d --> warehouse %d' % (d.id, d.best_w_i))
+
+    def count_remaining_orders (self):
+        return len (filter(lambda o:len(o.packs)>0,self.orders))
+
+    def allocate_packs_to_drones (self):
+        for o in self.orders:
+            o.allocated_drone=-1
+        for d in self.drones:
+            if d.busy:
+                d.allocated_order = -1
+                continue
+            done=False
+            attempts=0
+            while not done:
+                # allocate first available pack to drone
+                for o in self.orders:
+                    if o.allocated_drone != -1:
+                        continue
+                    if len(o.packs)==0:
+                        continue
+                    pack = o.packs[0]
+                    if pack[0]==d.best_w_i:
+                        o.allocated_drone=d.id
+                        d.allocated_order=o.id
+                        done=True
+                        print ('drone %d --> warehouse %d, order %d' % (d.id, pack[0], o.id))
+                        break
+                    if done:
+                        break        
+                if done:
+                    break
+                # if not found, allocate drone to next warehouse
+                remaining=self.count_remaining_orders()
+                if not done:
+                    print ('failed to allocate drone %d to pack.  %d orders remaining. switching to next warehouse.' % (d.id, remaining))
+                    d.best_w_i = (d.best_w_i+1)%len(self.warehouses)
+                    attempts+=1
+                    if attempts>len(self.warehouses):
+                        print ('ERROR : cycled through all warehouses.  nothing to do...')
+                        return False
+        return True
 
 
-    def allocate_orders_to_drones (self):
+    def compute_commands (self):
+        commands = []
         for d in self.drones:
             if d.busy:
                 continue
-            cand_orders = [o.id for o in self.orders if (o.best_w_i == d.best_w_i) and not o.done and not o.allocated_to_drone]
-            if len(cand_orders)>0:
-                d.best_o_i = cand_orders[0]
-                self.orders[cand_orders[0]].allocated_to_drone = True
-                d.busy = True
-            print ('order %d allocated to drone %d' % (d.best_o_i, d.id))
-
-
-    def update_commands (self):
-        for d in self.drones:
-            if d.best_o_i == -1 or d.best_w_i == -1:
-                continue
+            print ('commanding drone %d' % d.id)
+            o = self.orders[d.allocated_order]
+            w = self.warehouses[d.best_w_i]
+            pack = o.packs[0]
+            print ('commanding drone %d, order %d, warehouse %d' % (d.id, o.id, w.id))
+            assert (pack[0]==w.id)
+            for q in pack[1]:
+                # load command
+                commands.append([d.id, 0, w.id, q[0], q[1]])
+            for q in pack[1]:
+                # deliver command
+                commands.append([d.id, 2, o.id, q[0], q[1]])
+            # remove pack
+            o.packs = o.packs[1:]
+        return commands
 
 
     def solve (self):
-        # todo : allocate orders to warehouses, allocate drones to warehouses, pick best order
-        self.allocate_orders_to_warehouses ()
-        #self.allocate_drones_to_warehouses ()
-        #self.allocate_orders_to_drones ()
-        #self.update_commands ()
-        pass
+        # static allocation of orders to warehouses
+        if os.path.isfile ('game.bin'):
+            self = pickle.load (open ('game.bin','rb'))
+        else:
+            self.allocate_orders_to_warehouses ()
+            pickle.dump (self, open('game.bin','wb'))
 
-    
+        self.time = 0
+            
+        max_turns = 10000
+        for turn in range(max_turns):
+            print ('#################### TURN %d   TIME=%d #################' % (turn, self.time))
+            # allocate drones to warehouses
+            self.allocate_drones_to_warehouses ()
+            # allocate packs to drones
+            if not self.allocate_packs_to_drones ():
+                break
+            # generate commands
+            commands = self.compute_commands ()
+            # execute commands
+            for cmd in commands:
+                self.execute_command (cmd)
+            # update simulation time
+            self.time = min([d.time for d in self.drones])
+            for d in self.drones:
+                if d.time > self.time:
+                    d.busy=True
+                else:
+                    d.busy=False
+            remaining = self.count_remaining_orders ()
+            if remaining==0:
+                print ('All orders fullfilled. Stopping.  Time=%d, max duration=%d' % (self.time, self.duration))
+                break
+            if self.time > self.duration:
+                print ('End of game reached (duration=%d)' % self.duration)
+                break
+   
+
     def load_solution (self, filename):
         self.commands = []
         with open (filename,'r') as fp:
@@ -189,7 +261,7 @@ class Game:
             assert (ncommands == len(self.commands))
 
 
-    def execute_cmd (self, command):
+    def execute_command (self, command):
         points=0
         d = self.drones[command[0]]
         if command[1]==0 or command[1]==1:
@@ -237,7 +309,7 @@ class Game:
         points=0
         self.save_state ()
         for command in self.commands:
-            points += self.execute_cmd(command)
+            points += self.execute_command(command)
         self.restore_state()
         return points
 
@@ -286,7 +358,8 @@ def main(filename, solution):
     if solution is not None:
         game.load_solution (solution)
         for k in range(10):
-            game.run()
+            points = game.run()
+            print ('%d points' % points)
 
     else:
         game.solve()
