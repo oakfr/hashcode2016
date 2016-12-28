@@ -197,9 +197,9 @@ class Game:
                     d.best_w_i = (d.best_w_i+1)%len(self.warehouses)
                     attempts+=1
                     if attempts>len(self.warehouses):
-                        print ('ERROR : cycled through all warehouses.  nothing to do...')
-                        return False
-        return True
+                        print ('Warning : cycled through all warehouses.  nothing to do...')
+                        d.busy=True
+                        break
 
 
     def compute_commands (self):
@@ -240,8 +240,7 @@ class Game:
             # allocate drones to warehouses
             self.allocate_drones_to_warehouses ()
             # allocate packs to drones
-            if not self.allocate_packs_to_drones ():
-                break
+            self.allocate_packs_to_drones ()
             # generate commands
             commands = self.compute_commands ()
             # execute commands
@@ -266,7 +265,7 @@ class Game:
                 break
  
         # save solution to file
-        print ('saving %d commands to file' % len(self.commands))
+        print ('%d points.  saving %d commands to file' % (self.points, len(self.commands)))
         dirname = self.filename.split('.')[0]
         if not os.path.isdir (dirname):
             os.makedirs (dirname)
@@ -290,7 +289,7 @@ class Game:
         d = self.drones[command[0]]
         if command[1]==0 or command[1]==1:
             w = self.warehouses[command[2]]
-            d.time += distance(d.r, d.c, w.r, w.c)
+            d.time += 1+distance(d.r, d.c, w.r, w.c)
             #print ('drone %d moved %d,%d --> %d,%d.  cost=%d.  time=%d' % (d.id, d.r, d.c, w.r, w.c, distance(d.r, d.c, w.r, w.c), d.time))
             d.r = w.r
             d.c = w.c
@@ -303,7 +302,7 @@ class Game:
             assert(w.items[command[3]]>=0)
         elif command[1]==2:
             o = self.orders[command[2]]
-            d.time += distance(d.r, d.c, o.r, o.c)
+            d.time += 1+distance(d.r, d.c, o.r, o.c)
             #print ('drone %d moved %d,%d --> %d,%d.  cost=%d.  time=%d' % (d.id, d.r, d.c, o.r, o.c, distance(d.r, d.c, o.r, o.c), d.time))
             d.r = o.r
             d.c = o.c
@@ -316,6 +315,7 @@ class Game:
                 points += math.ceil (100.0*(1.0*self.duration-1.0*d.time)/(1.0*self.duration))
         elif command[1]==3:
             d.time += command[2]
+        assert (d.time<=self.duration)
         return points
 
     
@@ -382,10 +382,8 @@ def main(filename, solution):
     #game.allocate_orders_to_warehouses()
     if solution is not None:
         game.load_solution (solution)
-        for k in range(10):
-            points = game.run()
-            print ('%d points' % points)
-
+        points = game.run()
+        print ('%d points' % points)
     else:
         game.solve()
 
