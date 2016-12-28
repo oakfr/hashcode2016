@@ -58,7 +58,7 @@ class Drone:
         self.busy = False
 
 class Game:
-    def __init__ (self, maxr, maxc, duration, maxload, ntypes, weights, drones, orders, warehouses):
+    def __init__ (self, maxr, maxc, duration, maxload, ntypes, weights, drones, orders, warehouses, filename):
         self.maxr = maxr
         self.maxc = maxc
         self.duration = duration
@@ -69,6 +69,8 @@ class Game:
         self.commands = []
         self.n_types = ntypes
         self.weights = weights
+        self.filename = filename
+        self.points = 0
 
     def __str__ (self):
         s = 'grid %dx%d\n' % (self.maxr,self.maxc)
@@ -82,6 +84,17 @@ class Game:
         for w in self.warehouses:
             s+='\t[warehouse %d] %d %d %s\n' % (w.id, w.r, w.c, ' , '.join(['%d:%d'%(i,e) for i,e in enumerate(w.items) if e!=0]))
         return s
+
+
+    def commands_to_file (self, filename):
+        cmd_dict = ['L','U','D','W']
+        with open (filename,'w') as fp:
+            fp.write ('%d\n' % len(self.commands))
+            for cmd in self.commands:
+                if cmd[1]==0 or cmd[1]==1 or cmd[1]==2:
+                    fp.write('%d %c %d %d %d\n' % (cmd[0], cmd_dict[cmd[1]], cmd[2], cmd[3], cmd[4]))
+                elif cmd[1]==3:
+                    fp.write('%d W %d\n' % (cmd[0],cmd[2]))
 
 
     def cap_load (self, pack):
@@ -194,7 +207,6 @@ class Game:
         for d in self.drones:
             if d.busy:
                 continue
-            print ('commanding drone %d' % d.id)
             o = self.orders[d.allocated_order]
             w = self.warehouses[d.best_w_i]
             pack = o.packs[0]
@@ -213,11 +225,12 @@ class Game:
 
     def solve (self):
         # static allocation of orders to warehouses
-        if os.path.isfile ('game.bin'):
-            self = pickle.load (open ('game.bin','rb'))
+        filename = self.filename + '.bin'
+        if os.path.isfile (filename):
+            self = pickle.load (open (filename,'rb'))
         else:
             self.allocate_orders_to_warehouses ()
-            pickle.dump (self, open('game.bin','wb'))
+            pickle.dump (self, open(filename,'wb'))
 
         self.time = 0
             
@@ -233,7 +246,9 @@ class Game:
             commands = self.compute_commands ()
             # execute commands
             for cmd in commands:
-                self.execute_command (cmd)
+                self.points += self.execute_command (cmd)
+            # add commands to stack
+            self.commands += commands
             # update simulation time
             self.time = min([d.time for d in self.drones])
             for d in self.drones:
@@ -241,6 +256,7 @@ class Game:
                     d.busy=True
                 else:
                     d.busy=False
+            # quit
             remaining = self.count_remaining_orders ()
             if remaining==0:
                 print ('All orders fullfilled. Stopping.  Time=%d, max duration=%d' % (self.time, self.duration))
@@ -248,7 +264,15 @@ class Game:
             if self.time > self.duration:
                 print ('End of game reached (duration=%d)' % self.duration)
                 break
-   
+ 
+        # save solution to file
+        print ('saving %d commands to file' % len(self.commands))
+        dirname = self.filename.split('.')[0]
+        if not os.path.isdir (dirname):
+            os.makedirs (dirname)
+        filename = '%s/res_%d' % (dirname,self.points)
+        self.commands_to_file (filename)
+
 
     def load_solution (self, filename):
         self.commands = []
@@ -347,12 +371,13 @@ def read_data (filename):
         drones = []
         for k in range(DRONES):
             drones.append(Drone(k,warehouses[0].r,warehouses[0].c, NTYPES))
-    game = Game(C, R, DURATION, MAXLOAD, NTYPES, WEIGHTS, drones, orders, warehouses)
+    game = Game(C, R, DURATION, MAXLOAD, NTYPES, WEIGHTS, drones, orders, warehouses, filename)
     return game
 
 
 def main(filename, solution):
     game = read_data (filename)
+
  #   print(game)
     #game.allocate_orders_to_warehouses()
     if solution is not None:
