@@ -9,6 +9,13 @@ def distance(r1, c1, r2, c2):
     return math.ceil (math.sqrt ((r1-r2)**2+(c1-c2)**2))
 
 
+def compute_weight (pack, weights):
+    return sum ([i*weights[p] for (p,i) in pack])
+
+def pack_to_str (pack):
+    return ' '.join(['%d:%d'%(p,i) for (p,i) in pack])
+
+
 class Warehouse:
     def __init__ (self, id, r, c, items):
         self.id = id
@@ -17,7 +24,8 @@ class Warehouse:
         self.items = items
 
     def __str__ (self):
-        s='[warehouse %d] %d %d %s\n' % (self.id, self.r, self.c, ' , '.join(['%d:%d'%(i,e) for i,e in enumerate(w.items) if e!=0]))
+        return '[warehouse %d] %d,%d %s' % (self.id, self.r, self.c, '  '.join(['%d:%d'%(i,e) for i,e in enumerate(self.items_copy) if e!=0]))
+
 
 class Order:
     def __init__ (self, id, r, c, items):
@@ -25,6 +33,16 @@ class Order:
         self.r = r
         self.c = c
         self.items = items
+        self.done = False
+        self.allocated_to_drone = False
+        self.best_order = []
+        self.best_w_i = -1
+
+    def __str__ (self):
+        return '[order %d] %d,%d %s\t(%s)' % (self.id, self.r, self.c, '  '.join(['%d:%d'%(i,e) for i,e in enumerate(self.items) if e != 0]), '  '.join(['%d:%d'%(i,e) for i,e in enumerate(self.items_copy) if e != 0]))
+
+    def affinity_warehouse (self, warehouse, debug=False):
+        return 100.0*sum([min([a,b]) for a,b in zip(self.items_copy, warehouse.items_copy)])/distance(self.r,self.c,warehouse.r,warehouse.c)
 
 class Drone:
     def __init__ (self, id, r, c, n_types):
@@ -34,9 +52,12 @@ class Drone:
         self.busy = False
         self.time = 0
         self.items = [0]*n_types
+        self.best_w_i = -1
+        self.best_o_i = -1
+        self.busy = False
 
 class Game:
-    def __init__ (self, maxr, maxc, duration, maxload, ntypes, drones, orders, warehouses):
+    def __init__ (self, maxr, maxc, duration, maxload, ntypes, weights, drones, orders, warehouses):
         self.maxr = maxr
         self.maxc = maxc
         self.duration = duration
@@ -46,6 +67,7 @@ class Game:
         self.warehouses = warehouses
         self.commands = []
         self.n_types = ntypes
+        self.weights = weights
 
     def __str__ (self):
         s = 'grid %dx%d\n' % (self.maxr,self.maxc)
@@ -60,14 +82,99 @@ class Game:
             s+='\t[warehouse %d] %d %d %s\n' % (w.id, w.r, w.c, ' , '.join(['%d:%d'%(i,e) for i,e in enumerate(w.items) if e!=0]))
         return s
 
-    def allocate_orders_to_warehouses (self):
-        for o in self.orders:
-            scores = []
-            for w in self.warehouses:
-                scores.append(score_order_warehouse (o, w))
+
+    def cap_load (self, pack):
+        res = []
+        exp_pack = []
+        for p in pack:
+            exp_pack += [p[0] for k in range(p[1])]
+        cum_weight = 0
+        for p in exp_pack:
+            cum_weight += self.weights[p]
+            if cum_weight <= self.maxload:
+                res.append((p,1))
+            else:
                 break
-            break
-            print(scores)
+        #print ('%s reduced to %s' % (pack_to_str (pack), pack_to_str (res)))
+        return res
+            
+
+    def match_order_warehouse (self, o, w):
+        d = [a*b for a,b in zip(o.items_copy,w.items_copy)]
+        indx = [i for (i,e) in enumerate(d) if e>0]
+        pack = [(i,min(o.items_copy[i],w.items_copy[i])) for i in indx]
+        res = self.cap_load (pack)
+        return res
+
+
+    def allocate_orders_to_warehouses (self):
+        for w in self.warehouses:
+            w.items_copy = copy.copy (w.items)
+        for o in self.orders:
+            o.items_copy = copy.copy (o.items)
+        for o in self.orders:
+            packs = []
+            n_trials=0
+            while sum(o.items_copy)>0:
+                n_trials+=1
+                affs = [o.affinity_warehouse(w) for w in self.warehouses]
+                o.best_w_i = affs.index(max(affs))
+                w = self.warehouses[o.best_w_i]
+                pack = self.match_order_warehouse(o, w)
+                assert (compute_weight (pack, self.weights) <= self.maxload)
+                for (p,i) in pack:
+                    w.items_copy[p]-=i
+                    if w.items_copy[p]<0:
+                        print(pack)
+                        print (w)
+                    assert(w.items_copy[p]>=0)
+                    o.items_copy[p]-=i
+                packs.append (pack)
+                if n_trials>100:
+                    print ('failed to allocate order %d' % o.id)
+                    print (o)
+                    for w in self.warehouses:
+                        print(w)
+                        print ('order %d seems allocated to warehouse %d' % (o.id, o.best_w_i))
+                        print ('affinity = %.5f' % o.affinity_warehouse (self.warehouses[o.best_w_i]))
+                        print (w.items_copy[160])
+                    #    print ('affinity with 8 = %.5f' % o.affinity_warehouse (self.warehouses[8], True))
+                    return
+            print ('order %d allocated in %d parts' % (o.id, len(packs)))
+
+    def allocate_drones_to_warehouses (self):
+        # look for nearest warehouse
+        for d in self.drones:
+            dist = [distance(d.r, d.c, w.r, w.c) for w in self.warehouses]
+            indx = dist.index(min(dist))
+            d.best_w_i = indx
+            print ('drone %d allocated to warehouse %d' % (d.id, self.warehouses[d.best_w_i].id))
+
+
+    def allocate_orders_to_drones (self):
+        for d in self.drones:
+            if d.busy:
+                continue
+            cand_orders = [o.id for o in self.orders if (o.best_w_i == d.best_w_i) and not o.done and not o.allocated_to_drone]
+            if len(cand_orders)>0:
+                d.best_o_i = cand_orders[0]
+                self.orders[cand_orders[0]].allocated_to_drone = True
+                d.busy = True
+            print ('order %d allocated to drone %d' % (d.best_o_i, d.id))
+
+
+    def update_commands (self):
+        for d in self.drones:
+            if d.best_o_i == -1 or d.best_w_i == -1:
+                continue
+
+
+    def solve (self):
+        # todo : allocate orders to warehouses, allocate drones to warehouses, pick best order
+        self.allocate_orders_to_warehouses ()
+        #self.allocate_drones_to_warehouses ()
+        #self.allocate_orders_to_drones ()
+        #self.update_commands ()
         pass
 
     
@@ -82,7 +189,7 @@ class Game:
             assert (ncommands == len(self.commands))
 
 
-    def execute (self, command):
+    def execute_cmd (self, command):
         points=0
         d = self.drones[command[0]]
         if command[1]==0 or command[1]==1:
@@ -130,14 +237,10 @@ class Game:
         points=0
         self.save_state ()
         for command in self.commands:
-            points += self.execute(command)
+            points += self.execute_cmd(command)
         self.restore_state()
         return points
 
-
-    def solve (self):
-        # todo : allocate orders to warehouses, allocate drones to warehouse, pick best order
-        pass
 
 
 def read_data (filename):
@@ -172,7 +275,7 @@ def read_data (filename):
         drones = []
         for k in range(DRONES):
             drones.append(Drone(k,warehouses[0].r,warehouses[0].c, NTYPES))
-    game = Game(C, R, DURATION, MAXLOAD, NTYPES, drones, orders, warehouses)
+    game = Game(C, R, DURATION, MAXLOAD, NTYPES, WEIGHTS, drones, orders, warehouses)
     return game
 
 
@@ -182,9 +285,12 @@ def main(filename, solution):
     #game.allocate_orders_to_warehouses()
     if solution is not None:
         game.load_solution (solution)
-        game.run()
-        game.run()
-        game.run()
+        for k in range(10):
+            game.run()
+
+    else:
+        game.solve()
+
 
 if __name__ == "__main__":
     filename = sys.argv[1]
